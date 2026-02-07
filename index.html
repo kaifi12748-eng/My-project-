@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pure Relaxing Piano</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #050205;
+            cursor: crosshair;
+            touch-action: none;
+        }
+        .kiss {
+            position: absolute;
+            pointer-events: none;
+            user-select: none;
+            font-size: 40px;
+            z-index: 10;
+            will-change: transform, opacity;
+            animation: kissOut 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+        @keyframes kissOut {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            30% { opacity: 1; transform: translate(-50%, -100%) scale(1.5); }
+            100% { transform: translate(-50%, -250%) scale(2.5); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+let particles = [];
+const emojis = ['✨', '💖', '🌸', '🌟', '🍭'];
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// --- High-Quality Piano Audio (Musical Scale) ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// Pentatonic Scale (Ye hamesha sukoon bhara sound karta hai)
+const pianoScale = [130.81, 146.83, 164.81, 196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25, 783.99, 880.00];
+
+function playPiano(y) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const now = audioCtx.currentTime;
+    
+    // Y-position ko scale ke notes se map karna (Top = High Note)
+    const index = Math.floor((1 - y / canvas.height) * (pianoScale.length - 1));
+    const freq = pianoScale[Math.max(0, index)];
+
+    const masterGain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    // Sound Layering (Piano Tone)
+    const playTone = (f, type, vol, decay) => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(f, now);
+        
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(vol, now + 0.02); // Quick Soft Attack
+        g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+        
+        osc.connect(g);
+        g.connect(filter);
+        osc.start();
+        osc.stop(now + decay + 0.1);
+    };
+
+    // Piano "Body" (Pure Sine) aur "Bright" (Triangle) ka mix
+    playTone(freq, 'sine', 0.2, 3.0); 
+    playTone(freq * 2, 'sine', 0.05, 1.5); // Subtle Shimmer
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1000, now); // Sab "mystery/sharp" sound nikal jayega
+
+    masterGain.gain.setValueAtTime(0.6, now);
+    filter.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
+}
+
+class Particle {
+    constructor(x, y, color, speed) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * speed;
+        this.vy = (Math.random() - 0.5) * speed;
+        this.life = 1.0;
+        this.decay = 0.005 + Math.random() * 0.01;
+        this.color = color;
+        this.size = Math.random() * 3 + 1;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+    }
+    draw() {
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function spawn(x, y, isBurst) {
+    if (isBurst) {
+        playPiano(y);
+        const el = document.createElement('div');
+        el.className = 'kiss';
+        el.innerText = emojis[Math.floor(Math.random() * emojis.length)];
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        document.getElementById('ui').appendChild(el);
+        setTimeout(() => el.remove(), 1500);
+        
+        for(let i=0; i<12; i++) {
+            particles.push(new Particle(x, y, `hsl(${Math.random() * 40 + 320}, 80%, 70%)`, 3));
+        }
+    } else {
+        if (particles.length < 200) { 
+            particles.push(new Particle(x, y, 'rgba(255,182,193,0.3)', 0.5));
+        }
+    }
+}
+
+function animate() {
+    ctx.globalAlpha = 0.1;
+    ctx.fillStyle = '#050205';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1;
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update();
+        if (particles[i].life <= 0) {
+            particles.splice(i, 1);
+        } else {
+            particles[i].draw();
+        }
+    }
+    requestAnimationFrame(animate);
+}
+
+window.addEventListener('mousedown', e => spawn(e.clientX, e.clientY, true));
+window.addEventListener('mousemove', e => { if(e.buttons === 1) spawn(e.clientX, e.clientY, false) });
+window.addEventListener('touchstart', e => {
+    e.preventDefault();
+    spawn(e.touches[0].clientX, e.touches[0].clientY, true);
+}, {passive: false});
+window.addEventListener('touchmove', e => {
+    e.preventDefault();
+    spawn(e.touches[0].clientX, e.touches[0].clientY, false);
+}, {passive: false});
+
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
+
+animate();
+</script>
+</body>
+</html>
